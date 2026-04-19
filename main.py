@@ -1,21 +1,24 @@
 import asyncio
 import logging
 import os
+import uuid
 from threading import Thread
-from flask import Flask
+from flask import Flask, request
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import LabeledPrice, PreCheckoutQuery, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 
 # --- КОНФИГУРАЦИЯ ---
-API_TOKEN = '8671402014:AAHOTm69wjosyFxfDzYsN9iC_4iVtlQW-W0'
-# ВАЖНО: Укажите здесь URL вашего приложения на Render (с https://)
+API_TOKEN = '8723694663:AAEKRDMJ3JvrNDMUR_6vc12ztF8npLFdO54'
+# Укажите здесь URL вашего приложения на Render
 WEB_APP_URL = 'https://alocu-2.onrender.com'
 
 # --- FLASK И HTML ---
 app = Flask(__name__)
 
-html_template = f"""
+
+def get_html(payment_id):
+    return f"""
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -65,13 +68,33 @@ html_template = f"""
     const btn = document.getElementById('btn');
     const triesDisplay = document.getElementById('tries');
     const prizes = ["Bear", "Rocket", "Heart", "Rose", "Ничего", "Ничего", "Ничего", "Ничего"];
-    let attempts = 3;
+
+    // Уникальный ID текущей оплаты
+    const paymentId = "{payment_id}";
+
+    // Проверяем сохраненные попытки для этого ID
+    let attempts = localStorage.getItem('attempts_' + paymentId);
+    if (attempts === null) {{
+        attempts = 3;
+    }} else {{
+        attempts = parseInt(attempts);
+    }}
+
+    triesDisplay.innerText = attempts;
+    if (attempts <= 0) {{
+        btn.disabled = true;
+        btn.innerText = "Попытки исчерпаны";
+    }}
 
     function spin() {{
         if (attempts <= 0) return;
         btn.disabled = true;
         attempts--;
         triesDisplay.innerText = attempts;
+
+        // Сохраняем прогресс
+        localStorage.setItem('attempts_' + paymentId, attempts);
+
         const randomIndex = Math.floor(Math.random() * prizes.length);
         const totalRotation = 3600 + (360 - (randomIndex * 45));
         wheel.style.transform = `rotate(${{totalRotation}}deg)`;
@@ -79,6 +102,7 @@ html_template = f"""
         setTimeout(() => {{
             const result = prizes[randomIndex];
             alert(result === "Ничего" ? "Эх, ничего не выпало!" : "ПОЗДРАВЛЯЕМ! Ваш NFT: " + result);
+
             if (attempts > 0) {{
                 btn.disabled = false;
                 const currentAngle = totalRotation % 360;
@@ -86,7 +110,8 @@ html_template = f"""
                 wheel.style.transform = `rotate(${{currentAngle}}deg)`;
                 setTimeout(() => {{ wheel.style.transition = 'transform 4s cubic-bezier(0.15, 0, 0.15, 1)'; }}, 50);
             }} else {{
-                alert("Попытки закончились!");
+                alert("Попытки закончились! Купите новый доступ в боте.");
+                setTimeout(() => {{ window.Telegram.WebApp.close(); }}, 1500);
             }}
         }}, 4100);
     }}
@@ -95,47 +120,61 @@ html_template = f"""
 </html>
 """
 
+
 @app.route('/')
 def home():
-    return html_template
+    # Получаем ID платежа из ссылки (если он есть)
+    pid = request.args.get('payid', 'demo')
+    return get_html(pid)
+
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
+
 
 # --- БОТ AIOGRAM ---
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 logging.basicConfig(level=logging.INFO)
 
+
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
     await message.answer_invoice(
         title="Колесо NFT",
-        description="Оплата 2 звезды за доступ к игре (3 попытки)",
+        description="Оплата 2 звезды за 3 попытки",
         payload="wheel_payment",
         currency="XTR",
         prices=[LabeledPrice(label="2 Звезды", amount=2)],
         provider_token=""
     )
 
+
 @dp.pre_checkout_query()
 async def process_pre_checkout(query: PreCheckoutQuery):
     await bot.answer_pre_checkout_query(query.id, ok=True)
 
+
 @dp.message(F.successful_payment)
 async def success_payment(message: types.Message):
+    # Генерируем новый уникальный ID для каждой покупки
+    unique_pay_id = str(uuid.uuid4())[:8]
+    # Формируем одноразовую ссылку
+    game_url = f"{WEB_APP_URL}?payid={unique_pay_id}"
+
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎰 Играть в Mini App", web_app=WebAppInfo(url=WEB_APP_URL))]
+        [InlineKeyboardButton(text="🎰 Крутить колесо (3 раза)", web_app=WebAppInfo(url=game_url))]
     ])
-    await message.answer("Оплата подтверждена! Нажми кнопку ниже:", reply_markup=kb)
+    await message.answer(f"Оплата принята! Ваша уникальная сессия: {unique_pay_id}\nНажмите кнопку, чтобы начать игру:",
+                         reply_markup=kb)
+
 
 async def main():
-    # Запуск Flask в потоке для Render
     Thread(target=run_flask, daemon=True).start()
-    # Запуск Polling
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
+
 
 if __name__ == '__main__':
     asyncio.run(main())
