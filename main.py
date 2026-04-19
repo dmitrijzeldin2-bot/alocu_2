@@ -10,7 +10,7 @@ from aiogram.types import LabeledPrice, PreCheckoutQuery, InlineKeyboardMarkup, 
 # --- КОНФИГУРАЦИЯ ---
 API_TOKEN = '8671402014:AAHOTm69wjosyFxfDzYsN9iC_4iVtlQW-W0'
 # ВАЖНО: Укажите здесь URL вашего приложения на Render (с https://)
-WEB_APP_URL = 'https://https://alocu-2.onrender.com://onrender.com'
+WEB_APP_URL = 'https://alocu-2.onrender.com'
 
 # --- FLASK И HTML ---
 app = Flask(__name__)
